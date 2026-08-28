@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SLOTH-WX 配网·相册上传</title>
+<style>
+  :root{--bg:#0f1b2d;--card:#17263c;--line:#2b3d57;--ink:#e8eef7;--mut:#9fb0c6;--acc:#1689e8;--ok:#55951d;--warn:#e43b2f;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px;max-width:520px;margin:0 auto}
+  h1{font-size:18px;margin-bottom:4px}
+  .sub{color:var(--mut);font-size:12px;margin-bottom:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  h2{font-size:14px;margin-bottom:10px;color:#ffd928}
+  label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px}
+  input,select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0d1830;color:var(--ink);font-size:14px}
+  input:focus,select:focus{outline:none;border-color:var(--acc)}
+  button{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--acc);color:var(--ink);font-size:14px;font-weight:600;margin-top:10px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.sec{background:#2b3d57}
+  button.danger{background:var(--warn)}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  #log{background:#0a1424;border-radius:8px;padding:10px;height:130px;overflow:auto;font-size:12px;color:var(--mut);white-space:pre-wrap}
+  .st{font-size:13px;color:var(--ok);margin-top:8px}
+  progress{width:100%;height:10px;margin-top:8px;display:none}
+  .img-prev{display:none;max-width:120px;border-radius:6px;margin-top:8px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+  <h1>SLOTH-WX 配网 · 相册上传</h1>
+  <div class="sub">手机开启蓝牙，用 Chrome/Edge 打开（需 HTTPS 或 localhost 安全环境）。设备开机即广播 "SLOTH-WX"。</div>
+  <div class="card">
+    <button id="btnSel">1) 连接设备 SLOTH-WX</button>
+    <div class="st" id="stConn">未连接</div>
+  </div>
+
+  <div class="card">
+    <h2>WiFi 配网（写入后自动连网并存档，开机自动重连）</h2>
+    <label>SSID 名称</label><input id="inSsid" placeholder="你的 WiFi 名称">
+    <label>密码</label><input id="inPass" type="text" placeholder="WiFi 密码">
+    <div class="row">
+      <button id="btnWifi" class="sec">写入并连接</button>
+      <button id="btnWiFiClr" class="danger">清除已存 WiFi</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>相册图片上传（自动转 240x320 RGB565）</h2>
+    <div class="row">
+      <div>
+        <label>目标槽位</label>
+        <select id="seSlot"></select>
+      </div>
+      <div>
+        <label>填充方式</label>
+        <select id="seFit"><option value="stretch">拉伸铺满</option><option value="contain">等比留白</option></select>
+      </div>
+    </div>
+    <label>选择图片</label><input id="inPic" type="file" accept="image/*">
+    <img id="prev" class="img-prev" alt="预览">
+    <button id="btnUp">开始上传到设备</button>
+    <progress id="pg" max="100" value="0"></progress>
+    <div class="st" id="stUp"></div>
+  </div>
+
+  <div class="card">
+    <h2>天气城市（选择 / 新增 / 删除）</h2>
+    <div class="row">
+      <div>
+        <label>设备上的城市</label>
+        <select id="seCitySel"></select>
+      </div>
+      <div style="align-self:flex-end">
+        <button id="btnCitySel" class="sec" style="margin:0">选择此城市</button>
+      </div>
+    </div>
+    <label>新增城市</label>
+    <div class="row">
+      <input id="inCityName" placeholder="如: 广州" style="flex:1.5">
+      <input id="inCityLat" placeholder="纬度 如 23.13" style="flex:1">
+      <input id="inCityLon" placeholder="经度 如 113.27" style="flex:1">
+    </div>
+    <button id="btnCityAdd" class="sec">添加城市到设备</button>
+    <div class="row" style="margin-top:10px">
+      <button id="btnCityList" class="sec">刷新列表</button>
+      <button id="btnCityDel" class="danger">删除所选城市</button>
+    </div>
+    <div class="st" id="stCity"></div>
+  </div>
+
+  <div class="card">
+    <h2>设备消息</h2>
+    <div id="log">等待连接...</div>
+  </div>
+
+<script>
+const SVC   = 'a0e1f100-0000-4150-a1a0-3a54a1e2b3c4';
+const C_SSID='a0e1f101-0000-4150-a1a0-3a54a1e2b3c4';
+const C_PASS='a0e1f102-0000-4150-a1a0-3a54a1e2b3c4';
+const C_CMD ='a0e1f104-0000-4150-a1a0-3a54a1e2b3c4';
+const C_ST  ='a0e1f105-0000-4150-a1a0-3a54a1e2b3c4';
+const C_CTRL='a0e1f106-0000-4150-a1a0-3a54a1e2b3c4';
+const C_DATA='a0e1f107-0000-4150-a1a0-3a54a1e2b3c4';
+const C_CITY='a0e1f103-0000-4150-a1a0-3a54a1e2b3c4';
+const C_ADD ='a0e1f108-0000-4150-a1a0-3a54a1e2b3c4';
+const C_DEL ='a0e1f109-0000-4150-a1a0-3a54a1e2b3c4';
+const C_LST ='a0e1f10a-0000-4150-a1a0-3a54a1e2b3c4';
+const W=240, H=320, BYTES=W*H*2;
+
+let svc=null, cCtrl=null, cData=null, notifChr=null;
+
+function $(id){return document.getElementById(id);}
+function log(m){const l=$('log');l.textContent+=m+'\n';l.scrollTop=l.scrollHeight;}
+async function launch(fn){try{await fn();}catch(e){log('错误: '+e.message);}}
+
+(async function(){
+  for(let i=0;i<4;i++){const o=document.createElement('option');o.value=i;o.textContent='槽位 '+i;$('seSlot').appendChild(o);}
+  $('btnSel').addEventListener('click',onConnect);
+  $('btnWifi').addEventListener('click',()=>launch(onWifi));
+  $('btnWiFiClr').addEventListener('click',()=>launch(onWiFiClear));
+  $('btnUp').addEventListener('click',()=>launch(onUpload));
+  $('inPic').addEventListener('change',ev=>{const f=ev.target.files[0];if(f)preview(f);});
+  $('btnCitySel').addEventListener('click',()=>launch(onCitySel));
+  $('btnCityAdd').addEventListener('click',()=>launch(onCityAdd));
+  $('btnCityDel').addEventListener('click',()=>launch(onCityDel));
+  $('btnCityList').addEventListener('click',()=>launch(refreshCityList));
+  refreshCityList();
+})();
+
+async function writeChar(c,val){
+  const bytes=(typeof val==='string')?new TextEncoder().encode(val):val;
+  if(c.writeValueWithResponse) await c.writeValueWithResponse(bytes);
+  else await c.writeValue(bytes);
+}
+function get(c){return svc.getCharacteristic(c);}
+
+async function onConnect(){
+  log('正在扫描 "SLOTH-WX"...');
+  const dev=await navigator.bluetooth.requestDevice({filters:[{name:'SLOTH-WX'}],optionalServices:[SVC]});
+  dev.addEventListener('gattserverdisconnected',()=>{svc=null;cCtrl=null;cData=null;notifChr=null;$('stConn').textContent='已断开';log('设备断开。若已上传中断，点“1)连接”重连后可自动续传。');});
+  svc=await (await dev.gatt.connect()).getPrimaryService(SVC);
+  cCtrl=await get(C_CTRL); cData=await get(C_DATA);
+  const cSt=await get(C_ST);
+  notifChr=cSt;
+  cSt.addEventListener('characteristicvaluechanged',ev=>log('<< '+new TextDecoder().decode(ev.target.value)));
+  await cSt.startNotifications();
+  try{log('状态: '+new TextDecoder().decode(await cSt.readValue()));}catch(e){}
+  $('stConn').textContent='已连接';
+  log('已连接。可在下方写 WiFi 或上传相册图片。');
+}
+
+async function onWifi(){
+  const ssid=$('inSsid').value.trim(), pass=$('inPass').value;
+  if(!ssid){log('请填 SSID');return;}
+  log('写入 SSID / PASS ...');
+  await writeChar(await get(C_SSID),ssid);
+  await writeChar(await get(C_PASS),pass);
+  log('已下发，设备将自动连接并存档，开机自动重连。');
+}
+
+async function onWiFiClear(){
+  await writeChar(await get(C_CMD),'0');
+  log('已请求清除已存 WiFi。');
+}
+
+// ---- 天气城市管理 ----
+// 设备列表格式: "cnt\n0:名称@纬度@经度\n1:...\n"
+function fillCitySel(text){
+  const sel=$('seCitySel'); sel.innerHTML='';
+  const lines=text.trim().split('\n');
+  for(let i=1;i<lines.length;i++){
+    const m=lines[i].match(/^(\d+):([^@]+)@/);
+    if(!m) continue;
+    const idx=parseInt(m[1]),name=m[2];
+    const o=document.createElement('option');o.value=idx;o.textContent=name;
+    sel.appendChild(o);
+  }
+  if(!sel.options.length) sel.innerHTML='<option value="-1">(无城市)</option>';
+}
+async function refreshCityList(){
+  if(!svc){$('stCity').textContent='未连接，先连接设备';return;}
+  const txt=new TextDecoder().decode(await (await get(C_LST)).readValue());
+  fillCitySel(txt);
+  log('城市列表已刷新\n'+txt.trim());
+  $('stCity').textContent='列表已刷新';
+}
+async function onCitySel(){
+  if(!svc){log('未连接设备');return;}
+  const idx=parseInt($('seCitySel').value);
+  if(!(idx>=0)){log('请先选择城市');return;}
+  await writeChar(await get(C_CITY),String(idx));
+  log('已选择城市下标 '+idx+'，设备将切换并拉取该城市天气。');
+}
+async function onCityAdd(){
+  if(!svc){log('未连接设备');return;}
+  const name=$('inCityName').value.trim(), lat=$('inCityLat').value.trim(), lon=$('inCityLon').value.trim();
+  // 若经纬度未填, 尝试从内置大城市表自动补全
+  let latFinal=lat, lonFinal=lon;
+  if((!lat||!lon)&&CITY_GEO[name]){ latFinal=String(CITY_GEO[name][0]); lonFinal=String(CITY_GEO[name][1]); log('已自动补全经纬度: '+name+' '+latFinal+','+lonFinal); }
+  if(!name||!latFinal||!lonFinal){log('请填城市名 / 纬度 / 经度');return;}
+  const v=name+','+latFinal+','+lonFinal;
+  await writeChar(await get(C_ADD),v);
+  log('已请求添加城市: '+v);
+  await refreshCityList();
+}
+
+// 内置大城市经纬度表(自动补全, 覆盖省会/直辖市/计划单列市)
+const CITY_GEO={
+ '北京':[39.90,116.40],'上海':[31.23,121.47],'天津':[39.13,117.20],'重庆':[29.56,106.55],
+ '广州':[23.13,113.27],'深圳':[22.54,114.06],'武汉':[30.59,114.31],'成都':[30.57,104.07],
+ '南京':[32.06,118.80],'杭州':[30.27,120.16],'西安':[34.34,108.94],'郑州':[34.75,113.62],
+ '济南':[36.65,117.12],'青岛':[36.07,120.38],'沈阳':[41.81,123.43],'大连':[38.91,121.61],
+ '长春':[43.82,125.32],'哈尔滨':[45.75,126.65],'石家庄':[38.04,114.51],'太原':[37.87,112.55],
+ '呼和浩特':[40.84,111.75],'兰州':[36.06,103.83],'西宁':[36.62,101.78],'银川':[38.49,106.23],
+ '乌鲁木齐':[43.83,87.62],'拉萨':[29.65,91.14],'昆明':[25.04,102.71],'贵阳':[26.65,106.63],
+ '南宁':[22.82,108.32],'海口':[20.04,110.32],'福州':[26.07,119.29],'厦门':[24.48,118.09],
+ '南昌':[28.68,115.86],'长沙':[28.23,112.94],'合肥':[31.82,117.23],'苏州':[31.30,120.62],
+ '无锡':[31.49,120.31],'宁波':[29.87,121.55],'温州':[28.00,120.67],'佛山':[23.02,113.12],
+ '东莞':[23.02,113.75],'南通':[31.98,120.89],'常州':[31.81,119.97],'徐州':[34.26,117.19],
+ '泉州':[24.87,118.68],'烟台':[37.46,121.45],'唐山':[39.63,118.18],'珠海':[22.27,113.58],
+ '遵义':[27.73,106.93],'桂林':[25.27,110.29],'三亚':[18.25,109.51],'洛阳':[34.62,112.45],
+ '唐山':[39.63,118.18],'沈阳':[41.81,123.43]
+};
+async function onCityDel(){
+  if(!svc){log('未连接设备');return;}
+  const idx=parseInt($('seCitySel').value);
+  if(!(idx>=0)){log('请先选择要删除的城市');return;}
+  await writeChar(await get(C_DEL),String(idx));
+  log('已请求删除城市下标 '+idx);
+  await refreshCityList();
+}
+
+function preview(file){
+  const img=new Image();
+  img.onload=()=>{ $('prev').src=img.src; $('prev').style.display='block'; };
+  img.src=URL.createObjectURL(file);
+}
+
+function drawToRgb565(img){
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  if($('seFit').value==='contain'){
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    const s=Math.min(W/img.width,H/img.height),dw=img.width*s,dh=img.height*s;
+    ctx.drawImage(img,(W-dw)/2,(H-dh)/2,dw,dh);
+  }else{
+    ctx.drawImage(img,0,0,W,H);
+  }
+  const d=ctx.getImageData(0,0,W,H).data,out=new Uint8Array(BYTES);
+  let o=0;
+  for(let p=0;p<d.length;p+=4){
+    const v=((d[p]>>3)<<11)|((d[p+1]>>2)<<5)|(d[p+2]>>3); // RGB565
+    out[o++]=v&0xff;out[o++]=v>>8;                        // 小端
+  }
+  return out;
+}
+
+async function onUpload(){
+  const f=$('inPic').files[0];
+  if(!f){log('请选择图片');return;}
+  if(!svc){log('未连接设备');return;}
+  const img=new Image();
+  await new Promise((ok,bad)=>{img.onload=ok;img.onerror=()=>bad(new Error('图片解码失败'));img.src=URL.createObjectURL(f);});
+  const slot=parseInt($('seSlot').value);
+  const rgb=drawToRgb565(img);
+  log(`准备上传槽位 ${slot} (${BYTES}字节)...`);
+  $('pg').style.display='block';$('pg').value=0; $('prev').style.display='none';
+
+  // 1) 探测该槽已写字节数, 决定是全新传还是续传
+  let offset=0;
+  try{
+    await writeChar(cCtrl,'P:'+slot);
+    const st=await new Promise((res,rej)=>{
+      let timer=null;
+      const on=ev=>{const s=new TextDecoder().decode(ev.target.value);if(s.indexOf('IMG_PROBE')>=0){cleanup();res(s);}};
+      const cleanup=()=>{clearTimeout(timer);notifChr.removeEventListener('characteristicvaluechanged',on);};
+      notifChr.addEventListener('characteristicvaluechanged',on);
+      timer=setTimeout(()=>{cleanup();rej(new Error('探测字节数超时'));},2500);
+    });
+    const m=st.match(/IMG_PROBE\s+\d+\s+(\d+)/);
+    offset=m?parseInt(m[1]):0;
+    if(offset>=BYTES){ log('该槽位已是完整图片, 无需重传'); $('pg').value=100; return; }
+  }catch(e){ log('探测失败, 按全新上传: '+e.message); }
+
+  // 2) 开始: 有半截则续传(R), 否则全新(B)
+  if(offset>0){
+    await writeChar(cCtrl,'R:'+slot);
+    log(`断点续传模式: 从 ${offset} / ${BYTES} 字节继续`);
+  }else{
+    await writeChar(cCtrl,'B:'+slot);
+    log('全新上传模式');
+  }
+
+  // 3) 分块写入剩余数据
+  const chunk=240;
+  let errMsg=null;
+  let donePromise=new Promise((res,rej)=>{   // 同时监听整形 IMG_DONE / IMG_ERR
+    const on=ev=>{const s=new TextDecoder().decode(ev.target.value);
+      if(s.indexOf('IMG_ERR')>=0){cleanup();errMsg=s.trim();rej(new Error(errMsg));}
+      else if(s.indexOf('IMG_DONE')>=0){cleanup();res(s);}};
+    const cleanup=()=>{notifChr.removeEventListener('characteristicvaluechanged',on);};
+    notifChr.addEventListener('characteristicvaluechanged',on);
+    setTimeout(()=>{cleanup();},20000); // 兜底,不 resolve(rej); 由写入循环收敛
+  });
+  try{
+    for(;offset<rgb.length;offset+=chunk){
+      await writeChar(cData,rgb.subarray(offset,offset+chunk));
+      $('pg').value=(offset/rgb.length*100).toFixed(1);
+    }
+    $('pg').value=100;
+    // 4) 关键: 等设备回 IMG_DONE 才报"成功"。超时则提示可能是分块太多被挤断
+    const ack=await donePromise;
+    const line=(ack&&String(ack).split('\n').pop())||'IMG_DONE';
+    log('设备已确认落盘: '+line.trim());
+    $('stUp').textContent='✔ 上传成功, 相册会自动刷新显示。';
+    log('上传完成！设备相册会自动刷新显示。');
+  }catch(e){
+    $('stUp').textContent='✘ 上传未成功: '+(errMsg||e.message);
+    log('未收到设备成功确认: '+(errMsg||e.message));
+    log('提示: 若中途断开可重连后再次上传, 相同文件会断点续传。');
+  }
+}
+</script>
+</body>
+</html>
